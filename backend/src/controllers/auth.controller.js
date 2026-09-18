@@ -28,6 +28,11 @@ const setAuthCookies = (res, accessToken, refreshToken) => {
   });
 };
 
+const mobileAuthData = (req, user, accessToken, refreshToken) =>
+  req.get("X-Client") === "mobile"
+    ? { user: publicUser(user), accessToken, refreshToken }
+    : { user: publicUser(user) };
+
 /**
  * @description Signs a short-lived JWT access token for a given user ID. Sent
  * with every authenticated request via the Authorization header. Includes a
@@ -106,7 +111,7 @@ export const register = asyncHandler(async (req, res) => {
 
   res.status(201).json({
     success: true,
-    data: { user: publicUser(user) },
+    data: mobileAuthData(req, user, accessToken, refreshToken),
   });
 });
 
@@ -164,7 +169,7 @@ export const login = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    data: { user: publicUser(user) },
+    data: mobileAuthData(req, user, accessToken, refreshToken),
   });
 });
 
@@ -205,7 +210,13 @@ export const refresh = asyncHandler(async (req, res) => {
     ...cookieOptions,
     maxAge: 15 * 60 * 1000,
   });
-  res.status(200).json({ success: true, data: {} });
+  res.status(200).json({
+    success: true,
+    data:
+      req.get("X-Client") === "mobile"
+        ? { accessToken: newAccessToken }
+        : {},
+  });
 });
 
 /**

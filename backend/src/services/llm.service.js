@@ -49,6 +49,18 @@ export const isLLMConfigured = () => {
   return Boolean(geminiApiKey);
 };
 
+export const translateText = async (text, language) => {
+  if (!isLLMConfigured() || !text || language === "en") return text;
+
+  const prompt = `Translate the following remote-sensing application text into ${language}. Preserve place names, coordinates, metric names such as NDVI/NDWI, numbers, and formatting. Return only the translated text.\n\n${text}`;
+  try {
+    return await generateText(prompt);
+  } catch (error) {
+    console.warn("Text translation failed:", error.message);
+    return text;
+  }
+};
+
 const visionPrompt = ({ mode, task, roles }) => `You are a remote-sensing vision analyst. Analyze the supplied ${mode} imagery for this task:
 ${task}
 

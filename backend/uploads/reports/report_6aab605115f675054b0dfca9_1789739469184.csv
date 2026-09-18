@@ -1,0 +1,4 @@
+"Date","Query","Region","Phenomenon","Metric","Value","Area Affected (km2)","Change vs Baseline (%)","Confidence (%)","Status"
+"2026-09-18T13:28:32.452Z","Show me flood conditions around 25.25N, 86.98E in Bhagalpur, Bihar.","Kosi Basin, Bihar","flood","NDWI","0.42","2500","34","94","resolved"
+"2026-09-17T18:39:11.769Z","Show me flood conditions around 25.25N, 86.98E in Bhagalpur, Bihar.","Bhagalpur, Bihar","flood","NDWI","-0.06110066729771233","","","90","resolved"
+"2026-09-17T18:25:29.922Z","Show me flood conditions around 25.25N, 86.98E in Bhagalpur, Bihar.","Bhagalpur, Bihar","flood","NDWI","-0.06110066729771233","","","90","resolved"

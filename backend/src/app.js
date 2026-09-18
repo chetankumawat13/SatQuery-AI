@@ -8,6 +8,7 @@ import watchedRegionRouter from "./routes/watchedRegion.router.js";
 import reportRouter from "./routes/report.router.js";
 import dashboardRouter from "./routes/dashboard.router.js";
 import remoteSensingRouter from "./routes/remoteSensing.router.js";
+import translationRouter from "./routes/translation.router.js";
 import { notFound, errorHandler } from "./utils/error.handler.js";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
@@ -55,6 +56,7 @@ app.use("/api/alerts", watchedRegionRouter);
 app.use("/api/reports", reportRouter);
 app.use("/api/dashboard", dashboardRouter);
 app.use("/api/remote-sensing", remoteSensingRouter);
+app.use("/api/translate", translationRouter);
 
 app.use(notFound);
 app.use(errorHandler);

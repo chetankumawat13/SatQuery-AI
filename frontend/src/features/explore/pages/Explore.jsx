@@ -57,7 +57,7 @@ const Explore = () => {
             <span className="icon">&#9678;</span>
             <input
               type="text"
-              placeholder="Show flood extent in Kosi basin near Supaul..."
+              placeholder="Enter an address or ask for NDVI, flood, crop stress..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}

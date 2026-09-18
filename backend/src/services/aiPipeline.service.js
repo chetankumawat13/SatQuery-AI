@@ -11,7 +11,7 @@ import {
   querySimilarRecords,
   isPineconeConfigured,
 } from "./pinecone.service.js";
-import { analyzeQuery as ruleBasedAnalyze, getFallbackForPhenomenon } from "./satelliteAnalysis.service.js";
+import { extractRuleBasedIntent } from "./intent.service.js";
 
 /**
  * @description Maps a phenomenon category to the satellite index formula
@@ -26,12 +26,11 @@ const indexTypeFor = (phenomenon) =>
 /**
  * @description The real, layered analysis pipeline for a user's query:
  *
- *   1. LLM intent extraction (region + phenomenon) — falls back to the
- *      rule-based keyword matcher entirely if MISTRAL_API_KEY isn't set.
+ *   1. LLM intent extraction (region + phenomenon), with a local intent
+ *      extractor as a fallback when the model is unavailable or uncertain.
  *   2. Geocode the extracted region via free Nominatim.
- *   3. If geocoded AND Sentinel Hub is configured, fetch a REAL NDWI/NDVI
- *      statistic for that location's last 30 days. Otherwise fall back to
- *      fixed demo numbers for that phenomenon category.
+ *   3. If geocoded AND a phenomenon is identified, fetch a REAL NDWI/NDVI
+ *      statistic for that location's last 30 days. Never return demo numbers.
  *   4. If Pinecone is configured, embed the query, retrieve similar past
  *      queries as RAG context, then store this query's embedding for future
  *      retrieval.
@@ -63,23 +62,20 @@ export const analyzeQuery = async (rawQueryText) => {
   console.log("LLM Configured:", isLLMConfigured());
 
   // ---- Layer 1: intent extraction ----
-  if (!isLLMConfigured()) {
-    // No Mistral AI key at all — use the fully rule-based path, unchanged.
-    const fallback = ruleBasedAnalyze(rawQueryText);
-    return { ...fallback, vectorId: null, usedRealSatelliteData: false, usedRAGContext: false };
-  }
-
-  const intent = await extractIntent(rawQueryText);
+  const localIntent = extractRuleBasedIntent(rawQueryText);
+  const llmIntent = isLLMConfigured() ? await extractIntent(rawQueryText) : null;
+  const intent =
+    llmIntent && llmIntent.phenomenon !== "unknown"
+      ? { ...localIntent, ...llmIntent, region: llmIntent.region || localIntent.region }
+      : localIntent;
+  // An address-only query still needs a useful, measurable default. NDVI is
+  // the general vegetation index; it is always calculated from the requested
+  // coordinates and never comes from a preset result.
+  const analysisPhenomenon =
+    intent.phenomenon === "unknown" ? "vegetation_index" : intent.phenomenon;
   console.log("Extracted Intent:", intent);
 
-  if (!intent || intent.phenomenon === "unknown") {
-    // LLM configured but couldn't identify anything useful — still better
-    // to try the rule-based matcher than to give up outright.
-    const fallback = ruleBasedAnalyze(rawQueryText);
-    return { ...fallback, vectorId: null, usedRealSatelliteData: false, usedRAGContext: false };
-  }
-
-  const region = extractRegionName(rawQueryText) || intent.region;
+  const region = extractRegionName(rawQueryText) || intent.region || rawQueryText.trim();
 
   // ---- Layer 2: geocode the region ----
   const coords =
@@ -87,25 +83,21 @@ export const analyzeQuery = async (rawQueryText) => {
     (region ? await geocodePlace(region) : null);
   console.log("Geocoded Coordinates:", coords);
 
-  // ---- Layer 3: real satellite index, or demo fallback ----
+  // ---- Layer 3: real satellite index only ----
   let usedRealSatelliteData = false;
   let indexValue = null;
-  let source = "Sentinel-2 L2A (simulated)";
+  let source = "Sentinel Hub unavailable";
   let confidence;
   let areaAffectedKm2 = null;
   let changeVsBaselinePct = null;
 
-  const demoFallback = getFallbackForPhenomenon(intent.phenomenon);
-
   if (coords) {
+    console.log("Calling Sentinel Hub with:", {
+      coords,
+      indexType: indexTypeFor(analysisPhenomenon),
+    });
 
-
-  console.log("Calling Sentinel Hub with:", {
-    coords,
-      indexType: indexTypeFor(intent.phenomenon),
-  });
-
-    const real = await getSatelliteIndex(coords, indexTypeFor(intent.phenomenon));
+    const real = await getSatelliteIndex(coords, indexTypeFor(analysisPhenomenon));
 
      console.log("Sentinel Hub Result:", real);
 
@@ -123,7 +115,7 @@ if (!usedRealSatelliteData) {
     matched: true,
     parsedIntent: {
       region,
-      phenomenon: intent.phenomenon,
+      phenomenon: analysisPhenomenon,
       coordinates: coords
         ? {
             lat: coords.lat,
@@ -134,14 +126,14 @@ if (!usedRealSatelliteData) {
     satelliteResult: {
       passTimestamp: new Date(),
       source: "Sentinel Hub unavailable",
-      metric: indexTypeFor(intent.phenomenon),
+      metric: indexTypeFor(analysisPhenomenon),
       value: null,
       areaAffectedKm2: null,
       changeVsBaselinePct: null,
       confidence: 0,
     },
     responseText:
-      "I identified the query, but live satellite data could not be retrieved for this location.",
+      `I identified ${analysisPhenomenon === "vegetation_index" ? "a vegetation index" : analysisPhenomenon.replace("_", " ")} for ${region}, but live satellite data could not be retrieved for this location.`,
     status: "failed",
     vectorId: null,
     usedRealSatelliteData: false,
@@ -166,7 +158,7 @@ if (!usedRealSatelliteData) {
     pineconeStored = await upsertQueryRecord(vectorId, rawQueryText, {
       rawQueryText,
       region,
-      phenomenon: intent.phenomenon,
+      phenomenon: analysisPhenomenon,
     });
   }
 
@@ -174,7 +166,7 @@ if (!usedRealSatelliteData) {
   const llmAnswer = await composeAnswer({
     query: rawQueryText,
     region,
-    phenomenon: intent.phenomenon,
+    phenomenon: analysisPhenomenon,
     indexValue,
     source,
     context: ragContext,
@@ -182,20 +174,19 @@ if (!usedRealSatelliteData) {
 
   const responseText =
     llmAnswer ||
-    demoFallback?.responseText ||
-    `I identified this as a ${intent.phenomenon.replace("_", " ")} query${region ? ` for ${region}` : ""}, but couldn't retrieve a confident reading right now.`;
+    `Live ${indexTypeFor(analysisPhenomenon)} data was retrieved for ${region}.`;
 
   return {
     matched: true,
     parsedIntent: {
       region,
-      phenomenon: intent.phenomenon,
+      phenomenon: analysisPhenomenon,
       coordinates: coords ? { lat: coords.lat, lng: coords.lng } : null,
     },
     satelliteResult: {
       passTimestamp: new Date(),
       source,
-      metric: indexTypeFor(intent.phenomenon),
+      metric: indexTypeFor(analysisPhenomenon),
       value: indexValue,
       areaAffectedKm2,
       changeVsBaselinePct,

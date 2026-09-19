@@ -1,11 +1,15 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import path from "path";
 import { fileURLToPath } from "url";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from "dotenv";
+import Groq from "groq-sdk";
 import sharp from "sharp";
 import { PromptTemplate } from "@langchain/core/prompts";
 import config from "../config/config.js";
 
+// Keep the explicit-path dotenv load that was already here — makes sure
+// .env loads correctly even if this module is ever imported from a
+// different working directory than the project root.
 dotenv.config({
   path: path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -13,40 +17,39 @@ dotenv.config({
   ),
 });
 
-const geminiApiKey =
-  process.env.GEMINI_API_KEY || config.geminiApiKey;
+const groqApiKey = process.env.GROQ_API_KEY || config.groqApiKey;
 
-const geminiChatModel =
-  process.env.GEMINI_CHAT_MODEL ||
-  config.geminiChatModel ||
-  "gemini-3.6-flash";
+const groqChatModel =
+  process.env.GROQ_CHAT_MODEL || config.groqChatModel || "openai/gpt-oss-120b";
 
-let geminiClient = null;
-let chatClient = null;
+// Groq's vision-capable models are a different, smaller set than its text
+// models, and which ones are available changes over time — there is no safe
+// hardcoded default here. Set GROQ_VISION_MODEL explicitly once you've
+// checked https://console.groq.com/docs/models for the current
+// vision-capable model IDs. Until it's set, analyzeImagesWithVision below
+// returns null (graceful fallback to the non-vision baseline adapter in
+// remoteSensingAnalysis.service.js) — it does not guess.
+const groqVisionModel = process.env.GROQ_VISION_MODEL || config.groqVisionModel || null;
 
-const getGeminiClient = () => {
-  if (!geminiClient) {
-    geminiClient = new GoogleGenerativeAI(geminiApiKey);
+let groqClient = null;
+
+/**
+ * @description Lazily creates and caches the Groq client, mirroring the
+ * lazy-init pattern this file already used for its previous provider.
+ * @access Private
+ */
+const getGroqClient = () => {
+  if (!groqClient) {
+    groqClient = new Groq({ apiKey: groqApiKey });
   }
-
-  return geminiClient;
-};
-
-const getChatClient = () => {
-  if (!chatClient) {
-    chatClient = getGeminiClient().getGenerativeModel({
-      model: geminiChatModel,
-    });
-  }
-
-  return chatClient;
+  return groqClient;
 };
 
 /**
- * Checks whether Gemini is configured.
+ * Checks whether Groq is configured.
  */
 export const isLLMConfigured = () => {
-  return Boolean(geminiApiKey);
+  return Boolean(groqApiKey);
 };
 
 export const translateText = async (text, language) => {
@@ -91,17 +94,56 @@ const prepareVisionImage = async (file) => {
   };
 };
 
+/**
+ * @description Sends one or more images plus a task prompt to a Groq
+ * vision-capable model, using the OpenAI-compatible multimodal message
+ * format Groq's chat completions API expects (content as an array of
+ * {type:"text"} and {type:"image_url"} parts, image data as a base64 data
+ * URI). Returns null — same as before — if the LLM layer isn't configured,
+ * so callers fall back to the non-vision baseline adapter.
+ *
+ * NOTE: most Groq vision-preview models currently accept only ONE image per
+ * request. This function still attaches every file it's given; for
+ * multi-image tasks (bi-temporal change, optical+SAR fusion) verify against
+ * Groq's current docs whether your chosen GROQ_VISION_MODEL actually
+ * supports multiple images before relying on this in a demo — if it
+ * doesn't, Groq's API will reject the request and this returns null exactly
+ * like any other failure, so the baseline adapter's numeric comparison
+ * still produces a usable (if less rich) result.
+ */
 export const analyzeImagesWithVision = async ({ files, mode, task, roles }) => {
   if (!isLLMConfigured()) return null;
 
-  try {
-    const parts = [{ text: visionPrompt({ mode, task, roles }) }];
-    for (const file of files) {
-      parts.push({ inlineData: await prepareVisionImage(file) });
-    }
+  if (!groqVisionModel) {
+    console.warn(
+      "GROQ_VISION_MODEL is not set — skipping vision analysis and using the baseline adapter instead. " +
+        "Set GROQ_VISION_MODEL once you've confirmed a current vision-capable model ID from https://console.groq.com/docs/models."
+    );
+    return null;
+  }
 
-    const result = await getChatClient().generateContent(parts);
-    const raw = result.response.text().trim();
+  try {
+    const imageParts = await Promise.all(
+      files.map(async (file) => {
+        const { data, mimeType } = await prepareVisionImage(file);
+        return {
+          type: "image_url",
+          image_url: { url: `data:${mimeType};base64,${data}` },
+        };
+      })
+    );
+
+    const response = await getGroqClient().chat.completions.create({
+      model: groqVisionModel,
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: visionPrompt({ mode, task, roles }) }, ...imageParts],
+        },
+      ],
+    });
+
+    const raw = response.choices[0].message.content.trim();
     const cleaned = raw
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")
@@ -114,7 +156,7 @@ export const analyzeImagesWithVision = async ({ files, mode, task, roles }) => {
       confidence: Math.max(0, Math.min(100, Number(parsed.confidence) || 0)),
       observations: Array.isArray(parsed.observations) ? parsed.observations : [],
       limitations: Array.isArray(parsed.limitations) ? parsed.limitations : [],
-      model: geminiChatModel,
+      model: groqVisionModel,
     };
   } catch (error) {
     console.warn("Vision analysis failed:", error.message);
@@ -123,25 +165,27 @@ export const analyzeImagesWithVision = async ({ files, mode, task, roles }) => {
 };
 
 /**
- * Generates text using Gemini.
+ * Generates text using Groq's chat completions API.
  */
 const generateText = async (prompt) => {
-  const model = getChatClient();
+  const response = await getGroqClient().chat.completions.create({
+    model: groqChatModel,
+    messages: [{ role: "user", content: prompt }],
+  });
 
-  const result = await model.generateContent(prompt);
-
-  return result.response.text().trim();
+  return response.choices[0].message.content.trim();
 };
 
 /**
- * Embeddings are not handled by Gemini chat model.
+ * Embeddings are not handled by Groq's chat completion models (Groq does
+ * not currently offer a dedicated embeddings endpoint through this SDK).
  *
  * Return null for now so the pipeline can use the
  * existing rule-based/fallback flow.
  */
 export const embedText = async () => {
   console.warn(
-    "Embedding is not configured for Gemini. Returning null."
+    "Embedding is not configured for Groq. Returning null."
   );
 
   return null;
@@ -174,7 +218,7 @@ export const extractIntent = async (rawQueryText) => {
 
     const raw = await generateText(prompt);
 
-    // Handles accidental markdown fences if Gemini adds them
+    // Handles accidental markdown fences if the model adds them
     const cleaned = raw
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")

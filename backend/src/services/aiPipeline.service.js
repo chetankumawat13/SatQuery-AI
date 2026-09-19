@@ -200,4 +200,3 @@ if (!usedRealSatelliteData) {
     pineconeStored,
   };
 };
-

@@ -34,17 +34,34 @@ const config = {
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
 
-  // ===== AI layer (all OPTIONAL — the app falls back gracefully when any of
-  // these are missing; see src/services/aiPipeline.service.js) =====
+  // ===== AI layer — LLM (Groq) =====
+  // All OPTIONAL — the app falls back gracefully when any of these are
+  // missing; see src/services/llm.service.js and aiPipeline.service.js.
+  groqApiKey: process.env.GROQ_API_KEY || null,
+  groqChatModel: process.env.GROQ_CHAT_MODEL || "openai/gpt-oss-120b",
+  // No safe hardcoded default — Groq's vision-capable model catalog changes
+  // over time. Set this explicitly once you've checked
+  // https://console.groq.com/docs/models. Left unset, vision analysis is
+  // skipped (not guessed) and the app falls back to the non-vision baseline
+  // adapter in remoteSensingAnalysis.service.js.
+  groqVisionModel: process.env.GROQ_VISION_MODEL || null,
+
+  // ===== Previous LLM providers — no longer used by llm.service.js =====
+  // llm.service.js now talks to Groq exclusively. These are kept here only
+  // so nothing crashes if some other file still references them; they are
+  // not read by the current AI pipeline. Safe to delete once you've
+  // confirmed nothing else in the codebase still imports them.
   mistralApiKey: process.env.MISTRAL_API_KEY || null,
-  geminiApiKey: process.env.GEMINI_API_KEY,
-geminiChatModel:process.env.GEMINI_CHAT_MODEL || "gemini-3.6-flash",
   mistralChatModel: process.env.MISTRAL_CHAT_MODEL || "mistral-large-latest",
   mistralEmbeddingModel: process.env.MISTRAL_EMBEDDING_MODEL || "mistral-embed",
+  geminiApiKey: process.env.GEMINI_API_KEY || null,
+  geminiChatModel: process.env.GEMINI_CHAT_MODEL || "gemini-3.6-flash",
 
+  // ===== Vector DB (Pinecone) =====
   pineconeApiKey: process.env.PINECONE_API_KEY || null,
   pineconeIndex: process.env.PINECONE_INDEX || "satquery-ai",
 
+  // ===== Satellite data (Sentinel Hub) =====
   sentinelHubClientId: process.env.SENTINEL_HUB_CLIENT_ID || null,
   sentinelHubClientSecret: process.env.SENTINEL_HUB_CLIENT_SECRET || null,
 

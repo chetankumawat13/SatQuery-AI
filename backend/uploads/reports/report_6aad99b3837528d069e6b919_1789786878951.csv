@@ -1,0 +1,7 @@
+"Date","Query","Region","Phenomenon","Metric","Value","Area Affected (km2)","Change vs Baseline (%)","Confidence (%)","Status"
+"2026-09-19T02:48:22.467Z","Show flood extent in Kosi basin near Supaul","Kosi basin near Supaul","flood","NDWI","","","","0","failed"
+"2026-09-19T02:47:39.239Z","Show flood extent in Kosi basin near Supaul","flood Kosi basin Supaul","flood","NDWI","","","","0","failed"
+"2026-09-19T01:08:17.525Z","Show flood extent in Kosi basin near Supaul","Kosi basin","flood","NDWI","-0.5260501368475137","","","90","resolved"
+"2026-09-18T20:10:13.697Z","Show flood extent in Kosi basin near Supaul","flood Kosi basin Supaul","flood","NDWI","","","","0","failed"
+"2026-09-18T20:07:52.938Z","Show flood extent in Kosi basin near Supaul","flood Kosi basin Supaul","flood","NDWI","","","","0","failed"
+"2026-09-18T20:06:38.519Z","Show flood extent in Kosi basin near Supaul","Kosi basin near Supaul","flood","NDWI","","","","0","failed"

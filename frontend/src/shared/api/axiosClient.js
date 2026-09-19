@@ -3,7 +3,7 @@ import axios from "axios";
 // Backend runs on PORT=5000 by default per the backend's .env.example.
 // Override with VITE_API_BASE_URL in a .env file if your backend uses a
 // different port/host.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://satquery-ai-backend-m48x.onrender.com/api";
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
